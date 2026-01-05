@@ -19,18 +19,7 @@ npm install
 npm start
 ```
 
-The dev server runs on `http://localhost:5173`.
-
-### Telefonos elérés lépésről lépésre
-1. A fejlesztő gép és a telefon legyen ugyanazon a hálózaton (Wi‑Fi).
-2. Indítsd a szervert: `npm start`. A konzol kiírja a gép IPv4 címeit, pl. `http://192.168.0.42:5173`.
-3. Írd be a telefon böngészőjébe az IP-t és a portot (pl. `http://192.168.0.42:5173`).
-4. Engedélyezd a kamerahozzáférést a böngésző felszólítására.
-
-### Ha időtúllépést kapsz
-- Győződj meg róla, hogy a telefon ugyanazon a LAN-on van, és nincs VPN, ami elszigetelné.
-- Ellenőrizd, hogy a gép tűzfala engedélyezi-e a 5173-as portot.
-- Ha a böngésző HTTPS-et kér kamerához, használj tunnelt (pl. `ngrok http 5173`) és a HTTPS URL-t nyisd meg telefonon.
+The dev server runs on `http://localhost:5173`. For camera access on a physical phone, make sure the phone can reach your development machine and open the site over `http://<your-ip>:5173`. Modern browsers only allow camera access over secure contexts; `localhost` is treated as secure, but for LAN access use `https` (via a tunnel such as `ngrok`) if the browser blocks camera access over plain HTTP.
 
 ## Notes
 - The UI focuses on selecting the rear (environment) camera when available.
