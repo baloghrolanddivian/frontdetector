@@ -1,0 +1,14 @@
+{
+  "name": "frontdetector",
+  "version": "1.0.0",
+  "description": "This repository contains a small prototype web page for connecting to a phone camera and streaming the video feed into the browser. The current goal is simply to establish a reliable connection to the camera; additional front-detection logic will be added later.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node scripts/dev-server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
