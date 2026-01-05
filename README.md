@@ -32,6 +32,10 @@ The dev server runs on `http://localhost:5173`.
 - Ellenőrizd, hogy a gép tűzfala engedélyezi-e a 5173-as portot.
 - Ha a böngésző HTTPS-et kér kamerához, használj tunnelt (pl. `ngrok http 5173`) és a HTTPS URL-t nyisd meg telefonon.
 - Ha egy felhős/remote fejlesztői környezetet használsz (pl. devcontainer, Codespaces), a konzolban látott IP cím lehet, hogy a telefonról nem érhető el. Ilyenkor használj tunnelt (pl. `ngrok http 5173`), vagy futtasd a szervert a helyi gépeden, ahol a telefon ugyanarra a Wi‑Fi-re csatlakozik.
+- Ha a telefonod „a localhost visszautasította a csatlakozást” hibát ír:
+  - Ellenőrizd, hogy a szerver fut-e: `npm start` (hagy a terminálban futni), majd a gépen teszteld: `curl http://localhost:5173/`.
+  - Ha a port foglalt, indítsd más porton: `PORT=5174 npm start`, és a telefonon is ezt a portot add meg.
+  - Remote környezetben (pl. devcontainer) a helyi IP nem érhető el; használd a tunnel HTTPS címét.
 
 ## Notes
 - The UI focuses on selecting the rear (environment) camera when available.

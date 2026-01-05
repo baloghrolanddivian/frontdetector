@@ -71,6 +71,15 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res);
 });
 
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} already in use. Try: PORT=5174 npm start`);
+  } else {
+    console.error("Server error:", err);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   const addresses = listAddresses();
   console.log(`Dev server running at:`);
@@ -80,4 +89,5 @@ server.listen(PORT, HOST, () => {
   console.log(
     "If you're running in a remote dev container or cloud IDE, these LAN IPs may not be reachable directly; use a tunnel (e.g. `ngrok http 5173`)."
   );
+  console.log("Quick check: curl http://localhost:" + PORT + "/ should return the HTML.");
 });
