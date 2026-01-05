@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Front Detector Camera Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="header">
+        <div>
+          <p class="eyebrow">Prototype</p>
+          <h1>Csatlakozás a telefon kamerájához</h1>
+          <p class="lede">
+            Engedélyezd a kamerához való hozzáférést a telefon böngészőjében, majd válaszd ki a hátlapi kamerát.
+            A továbbiakban innen fogjuk kiolvasni a front méretét, színét és marását.
+          </p>
+        </div>
+        <div class="badges">
+          <span class="badge">Első lépés</span>
+          <span class="badge badge-secondary">Kamera bekapcsolása</span>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Videó feed</p>
+            <h2>Telefon kamera</h2>
+          </div>
+          <button id="startButton" class="primary">Kamera indítása</button>
+        </div>
+        <div class="video-wrapper">
+          <video id="video" playsinline autoplay muted></video>
+          <div id="status" class="status">Nincs aktív kamera</div>
+        </div>
+        <div class="controls">
+          <label for="deviceSelect">Válassz kamerát:</label>
+          <select id="deviceSelect"></select>
+          <button id="refreshDevices" class="ghost">List frissítése</button>
+        </div>
+        <div class="info-grid">
+          <div>
+            <p class="eyebrow">Felbontás</p>
+            <p id="resolution">–</p>
+          </div>
+          <div>
+            <p class="eyebrow">Facing mode</p>
+            <p id="facingMode">–</p>
+          </div>
+          <div>
+            <p class="eyebrow">Eszköz</p>
+            <p id="deviceInfo">–</p>
+          </div>
+        </div>
+        <p class="hint">
+          Tipp: Telefonon a böngésző gyakran csak HTTPS-en engedi a kamerát. Használj tunnelt (pl. ngrok) vagy csatlakozz közvetlenül a fejlesztő gép IP címére, ha a böngésző blokkolja a kérést.
+        </p>
+      </section>
+    </main>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
