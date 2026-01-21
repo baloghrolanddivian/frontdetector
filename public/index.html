@@ -33,12 +33,18 @@
         </div>
         <div class="video-wrapper">
           <video id="video" playsinline autoplay muted></video>
+          <img id="ipVideo" class="hidden" alt="IP camera stream" />
           <div id="status" class="status">Nincs aktív kamera</div>
         </div>
         <div class="controls">
           <label for="deviceSelect">Válassz kamerát:</label>
           <select id="deviceSelect"></select>
           <button id="refreshDevices" class="ghost">List frissítése</button>
+        </div>
+        <div class="controls">
+          <label for="ipCameraUrl">IP camera URL:</label>
+          <input id="ipCameraUrl" type="text" value="192.168.2.66:8080" />
+          <button id="connectIpButton" class="ghost">Connect IP camera</button>
         </div>
         <div class="info-grid">
           <div>
