@@ -9,20 +9,30 @@ const statusEl = document.getElementById("status");
 const resolutionEl = document.getElementById("resolution");
 const facingModeEl = document.getElementById("facingMode");
 const deviceInfoEl = document.getElementById("deviceInfo");
+const overlay = document.getElementById("overlay");
+const overlayCtx = overlay ? overlay.getContext("2d") : null;
+let detectOnceButton = document.getElementById("detectOnceButton");
 
 let currentStream = null;
 let detectionRaf = null;
 
-const analysisCanvas = document.createElement("canvas");
-const analysisCtx = analysisCanvas.getContext("2d", { willReadFrequently: true });
+const captureCanvas = document.createElement("canvas");
+const captureCtx = captureCanvas.getContext("2d");
 const DETECT_WIDTH = 96;
 const DETECT_HEIGHT = 54;
+const CAMERA_HEIGHT_MM = 630;
+const CALIBRATED_MM_PER_PX = 0.895;
+const DETECT_INTERVAL_MS = 500;
+
+let lastDetectAt = 0;
+let lastBoxes = [];
+let lastFrameSize = null;
+let detectInFlight = false;
+let sizeSeries = [];
+let sizeSeriesLoaded = false;
 
 const detectionState = {
-  color: null,
-  stableCount: 0,
-  lastLoggedAt: 0,
-  lastErrorAt: 0,
+  corsBlocked: false,
 };
 
 function log(message, isError = false) {
@@ -64,6 +74,7 @@ function setViewMode(mode) {
     video.classList.add("hidden");
     ipVideo.classList.remove("hidden");
   } else {
+    clearOverlay();
     ipVideo.classList.add("hidden");
     ipVideo.removeAttribute("src");
     video.classList.remove("hidden");
@@ -104,195 +115,255 @@ function getActiveSource() {
   return null;
 }
 
-function rgbToName(r, g, b) {
-  const rNorm = r / 255;
-  const gNorm = g / 255;
-  const bNorm = b / 255;
-  const max = Math.max(rNorm, gNorm, bNorm);
-  const min = Math.min(rNorm, gNorm, bNorm);
-  const delta = max - min;
-
-  const v = max;
-  const s = max === 0 ? 0 : delta / max;
-
-  if (v < 0.2) return "black";
-  if (s < 0.15 && v > 0.85) return "white";
-  if (s < 0.15) return "gray";
-
-  let h = 0;
-  if (delta !== 0) {
-    if (max === rNorm) {
-      h = ((gNorm - bNorm) / delta) % 6;
-    } else if (max === gNorm) {
-      h = (bNorm - rNorm) / delta + 2;
-    } else {
-      h = (rNorm - gNorm) / delta + 4;
-    }
-    h = Math.round(h * 60);
-    if (h < 0) h += 360;
-  }
-
-  if (h < 30 || h >= 330) return "red";
-  if (h < 60) return "orange";
-  if (h < 90) return "yellow";
-  if (h < 150) return "green";
-  if (h < 210) return "cyan";
-  if (h < 270) return "blue";
-  if (h < 330) return "magenta";
-  return "unknown";
+function normalizeBoxes(result) {
+  if (!result) return [];
+  if (Array.isArray(result.boxes)) return result.boxes;
+  if (Array.isArray(result.bboxes)) return result.bboxes;
+  if (result.bbox) return [result.bbox];
+  return [];
 }
 
-function findLargestRegion(data, width, height) {
-  const total = width * height;
-  const keys = new Uint16Array(total);
-  const visited = new Uint8Array(total);
+function normalizeSizeSeries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => ({
+      label: entry.label || `${entry.width_mm}x${entry.height_mm}`,
+      width: Number(entry.width_mm),
+      height: Number(entry.height_mm),
+    }))
+    .filter((entry) => Number.isFinite(entry.width) && Number.isFinite(entry.height));
+}
 
-  for (let i = 0; i < total; i += 1) {
-    const offset = i * 4;
-    const r = data[offset];
-    const g = data[offset + 1];
-    const b = data[offset + 2];
-    keys[i] = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+async function loadSizeSeries() {
+  if (sizeSeriesLoaded) return;
+  sizeSeriesLoaded = true;
+  try {
+    const response = await fetch("./size-series.json", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    sizeSeries = normalizeSizeSeries(data);
+  } catch (err) {
+    console.warn("Size series not loaded.", err);
   }
+}
 
+function findClosestSeries(widthMm, heightMm) {
+  if (!sizeSeries.length) return null;
   let best = null;
-  const stack = [];
+  let bestScore = Number.POSITIVE_INFINITY;
 
-  for (let index = 0; index < total; index += 1) {
-    if (visited[index]) continue;
-
-    const key = keys[index];
-    let count = 0;
-    let minX = width;
-    let maxX = 0;
-    let minY = height;
-    let maxY = 0;
-    let sumR = 0;
-    let sumG = 0;
-    let sumB = 0;
-
-    stack.length = 0;
-    stack.push(index);
-    visited[index] = 1;
-
-    while (stack.length > 0) {
-      const current = stack.pop();
-      const x = current % width;
-      const y = (current / width) | 0;
-
-      count += 1;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-
-      const offset = current * 4;
-      sumR += data[offset];
-      sumG += data[offset + 1];
-      sumB += data[offset + 2];
-
-      const left = current - 1;
-      if (x > 0 && !visited[left] && keys[left] === key) {
-        visited[left] = 1;
-        stack.push(left);
-      }
-      const right = current + 1;
-      if (x < width - 1 && !visited[right] && keys[right] === key) {
-        visited[right] = 1;
-        stack.push(right);
-      }
-      const up = current - width;
-      if (y > 0 && !visited[up] && keys[up] === key) {
-        visited[up] = 1;
-        stack.push(up);
-      }
-      const down = current + width;
-      if (y < height - 1 && !visited[down] && keys[down] === key) {
-        visited[down] = 1;
-        stack.push(down);
-      }
+  sizeSeries.forEach((entry) => {
+    const dx1 = widthMm - entry.width;
+    const dy1 = heightMm - entry.height;
+    const score1 = dx1 * dx1 + dy1 * dy1;
+    const dx2 = widthMm - entry.height;
+    const dy2 = heightMm - entry.width;
+    const score2 = dx2 * dx2 + dy2 * dy2;
+    const score = Math.min(score1, score2);
+    if (score < bestScore) {
+      bestScore = score;
+      best = entry;
     }
+  });
 
-    if (!best || count > best.count) {
-      best = {
-        count,
-        minX,
-        maxX,
-        minY,
-        maxY,
-        avgR: sumR / count,
-        avgG: sumG / count,
-        avgB: sumB / count,
-      };
-    }
-  }
-
-  return best;
+  return best ? { ...best, distance: Math.sqrt(bestScore) } : null;
 }
 
-function isRectangleLike(region, totalPixels) {
-  if (!region) return false;
-  const bboxArea = (region.maxX - region.minX + 1) * (region.maxY - region.minY + 1);
-  const fillRatio = region.count / bboxArea;
-  const coverage = region.count / totalPixels;
-  const bboxCoverage = bboxArea / totalPixels;
+function captureFrameForBackend(source) {
+  const sourceWidth = source.videoWidth || source.naturalWidth || DETECT_WIDTH;
+  const sourceHeight = source.videoHeight || source.naturalHeight || DETECT_HEIGHT;
+  const maxWidth = 960;
+  const scale = sourceWidth > maxWidth ? maxWidth / sourceWidth : 1;
+  const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
 
-  if (coverage < 0.12) return false;
-  if (bboxCoverage > 0.85) return false;
-  if (fillRatio < 0.7) return false;
-  return true;
+  try {
+    captureCanvas.width = targetWidth;
+    captureCanvas.height = targetHeight;
+    captureCtx.drawImage(source, 0, 0, targetWidth, targetHeight);
+    const dataUrl = captureCanvas.toDataURL("image/jpeg", 0.8);
+    return { dataUrl, width: targetWidth, height: targetHeight };
+  } catch (err) {
+    if (err.name === "SecurityError" && !detectionState.corsBlocked) {
+      log("A video forrasa CORS miatt nem elemezheto.", true);
+      detectionState.corsBlocked = true;
+    }
+    console.warn("Detection skipped: cannot capture frame.", err);
+    return null;
+  }
+}
+
+async function requestBackendDetection(save, source) {
+  const capture = captureFrameForBackend(source);
+  if (!capture) return null;
+
+  const endpoint = save ? "/detect" : "/detect-preview";
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageDataUrl: capture.dataUrl }),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    console.error("Detection backend error.", payload);
+    return null;
+  }
+  payload._frameSize = { width: capture.width, height: capture.height };
+  return payload;
+}
+
+function clearOverlay() {
+  if (!overlay || !overlayCtx) return;
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+}
+
+function updateOverlay(boxes, frameSize, source) {
+  if (!overlay || !overlayCtx || !boxes || boxes.length === 0 || !source || !frameSize) return;
+  const rect = source.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  if (overlay.width !== width || overlay.height !== height) {
+    overlay.width = width;
+    overlay.height = height;
+  }
+
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  const scaleX = overlay.width / frameSize.width;
+  const scaleY = overlay.height / frameSize.height;
+  overlayCtx.strokeStyle = "#22c55e";
+  overlayCtx.lineWidth = Math.max(2, Math.round(Math.min(overlay.width, overlay.height) * 0.004));
+  boxes.forEach((box) => {
+    if (Array.isArray(box.points) && box.points.length >= 4) {
+      overlayCtx.beginPath();
+      box.points.forEach((point, index) => {
+        const px = point[0] * scaleX;
+        const py = point[1] * scaleY;
+        if (index === 0) {
+          overlayCtx.moveTo(px, py);
+        } else {
+          overlayCtx.lineTo(px, py);
+        }
+      });
+      overlayCtx.closePath();
+      overlayCtx.stroke();
+    } else {
+      const x = box.x * scaleX;
+      const y = box.y * scaleY;
+      const w = box.w * scaleX;
+      const h = box.h * scaleY;
+      overlayCtx.strokeRect(x, y, w, h);
+    }
+  });
+}
+
+async function runManualDetection() {
+  await loadSizeSeries();
+  const source = getActiveSource();
+  if (!source) {
+    console.log("Manual check: nincs elerheto video forras.");
+    return;
+  }
+
+  let payload = null;
+  try {
+    payload = await requestBackendDetection(true, source);
+  } catch (err) {
+    console.error("Manual check: nem sikerult a detektalas.", err);
+    return;
+  }
+
+  if (!payload) {
+    console.log("Manual check: nincs detektalt front.");
+    return;
+  }
+
+  const boxes = normalizeBoxes(payload.result);
+  if (boxes.length === 0) {
+    console.log("Manual check: nincs detektalt front.");
+    return;
+  }
+
+  const frameSize = payload._frameSize || { width: 1, height: 1 };
+  const sourceWidth = source.videoWidth || source.naturalWidth || frameSize.width;
+  const sourceHeight = source.videoHeight || source.naturalHeight || frameSize.height;
+  const scaleX = sourceWidth / frameSize.width;
+  const scaleY = sourceHeight / frameSize.height;
+  const mmPerPixel = Number.isFinite(CALIBRATED_MM_PER_PX)
+    ? CALIBRATED_MM_PER_PX
+    : sourceHeight
+    ? CAMERA_HEIGHT_MM / sourceHeight
+    : 0;
+  boxes.forEach((box, index) => {
+    const boxWidth = box.rw || box.w;
+    const boxHeight = box.rh || box.h;
+    const widthPx = Math.round(boxWidth * scaleX);
+    const heightPx = Math.round(boxHeight * scaleY);
+    const widthMmRaw = mmPerPixel ? boxWidth * mmPerPixel : null;
+    const heightMmRaw = mmPerPixel ? boxHeight * mmPerPixel : null;
+    const widthMm = widthMmRaw ? Math.round(widthMmRaw) : null;
+    const heightMm = heightMmRaw ? Math.round(heightMmRaw) : null;
+    const sizeMmText = widthMm ? `${widthMm} mm x ${heightMm} mm` : "n/a";
+    console.log(
+      `Manual check ${index + 1}/${boxes.length}: meret ${widthPx}x${heightPx} px (${sizeMmText}).`
+    );
+    if (widthMmRaw && heightMmRaw) {
+      const closest = findClosestSeries(widthMmRaw, heightMmRaw);
+      if (closest) {
+        console.log(
+          `Manual check ${index + 1}/${boxes.length}: legkozelebbi szeria ${closest.label} (elteres ~${Math.round(
+            closest.distance
+          )} mm).`
+        );
+      }
+    }
+  });
+
+  if (payload.annotatedUrl || payload.rawUrl) {
+    console.log(`Mentett kep: ${payload.annotatedUrl || payload.rawUrl}`);
+  }
+}
+
+async function runPreviewDetection(source) {
+  if (detectInFlight) return;
+  const now = Date.now();
+  if (now - lastDetectAt < DETECT_INTERVAL_MS) return;
+  detectInFlight = true;
+  lastDetectAt = now;
+
+  try {
+    const payload = await requestBackendDetection(false, source);
+    if (payload) {
+      lastBoxes = normalizeBoxes(payload.result);
+      lastFrameSize = payload._frameSize;
+    } else {
+      lastBoxes = [];
+      lastFrameSize = null;
+    }
+  } catch (err) {
+    console.error("Preview detection failed.", err);
+  } finally {
+    detectInFlight = false;
+  }
 }
 
 function analyzeFrame() {
   const source = getActiveSource();
   if (!source) {
+    clearOverlay();
     detectionRaf = requestAnimationFrame(analyzeFrame);
     return;
   }
 
-  if (analysisCanvas.width !== DETECT_WIDTH || analysisCanvas.height !== DETECT_HEIGHT) {
-    analysisCanvas.width = DETECT_WIDTH;
-    analysisCanvas.height = DETECT_HEIGHT;
-  }
+  runPreviewDetection(source);
 
-  let imageData;
-  try {
-    analysisCtx.drawImage(source, 0, 0, DETECT_WIDTH, DETECT_HEIGHT);
-    imageData = analysisCtx.getImageData(0, 0, DETECT_WIDTH, DETECT_HEIGHT);
-  } catch (err) {
-    const now = Date.now();
-    if (now - detectionState.lastErrorAt > 2000) {
-      console.warn("Detection skipped: cannot read pixels from video source.", err);
-      detectionState.lastErrorAt = now;
-    }
-    detectionRaf = requestAnimationFrame(analyzeFrame);
-    return;
-  }
-
-  const region = findLargestRegion(imageData.data, DETECT_WIDTH, DETECT_HEIGHT);
-
-  if (isRectangleLike(region, DETECT_WIDTH * DETECT_HEIGHT)) {
-    const colorName = rgbToName(region.avgR, region.avgG, region.avgB);
-    if (detectionState.color === colorName) {
-      detectionState.stableCount += 1;
-    } else {
-      detectionState.color = colorName;
-      detectionState.stableCount = 1;
-    }
-
-    const now = Date.now();
-    if (detectionState.stableCount >= 3 && now - detectionState.lastLoggedAt > 2000) {
-      console.log(`Teglalap detektalva (szin: ${colorName})`);
-      detectionState.lastLoggedAt = now;
-    }
+  if (lastBoxes.length > 0 && lastFrameSize) {
+    updateOverlay(lastBoxes, lastFrameSize, source);
   } else {
-    detectionState.color = null;
-    detectionState.stableCount = 0;
+    clearOverlay();
   }
 
   detectionRaf = requestAnimationFrame(analyzeFrame);
 }
-
 function startDetectionLoop() {
   if (detectionRaf) return;
   detectionRaf = requestAnimationFrame(analyzeFrame);
@@ -301,6 +372,10 @@ function startDetectionLoop() {
 async function startStream(deviceId) {
   await stopStream();
   setViewMode("local");
+  detectionState.corsBlocked = false;
+  lastBoxes = [];
+  lastFrameSize = null;
+  lastDetectAt = 0;
 
   const constraints = {
     audio: false,
@@ -348,6 +423,11 @@ async function startIpStream() {
   await stopStream();
   setViewMode("ip");
   updateInfo(null, "IP camera");
+  detectionState.corsBlocked = false;
+  lastBoxes = [];
+  lastFrameSize = null;
+  lastDetectAt = 0;
+  ipVideo.crossOrigin = "anonymous";
   ipVideo.src = url;
   const warnings = [];
   if (window.location.protocol === "https:" && url.startsWith("http://")) {
@@ -375,6 +455,11 @@ ipCameraUrl.addEventListener("keydown", (event) => {
 });
 
 async function init() {
+  loadSizeSeries();
+  if (detectOnceButton) {
+    detectOnceButton.addEventListener("click", () => runManualDetection());
+  }
+
   if (!navigator.mediaDevices?.getUserMedia) {
     log("A böngésző nem támogatja a kamerát", true);
     startButton.disabled = true;
@@ -387,3 +472,4 @@ async function init() {
 }
 
 init();
+

@@ -109,6 +109,14 @@ video,
   background: #0b1021;
 }
 
+#overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 #ipVideo {
   object-fit: cover;
 }

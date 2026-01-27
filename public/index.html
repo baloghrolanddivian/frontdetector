@@ -33,8 +33,12 @@
         </div>
         <div class="video-wrapper">
           <video id="video" playsinline autoplay muted></video>
-          <img id="ipVideo" class="hidden" alt="IP camera stream" />
+          <img id="ipVideo" class="hidden" alt="IP camera stream" crossorigin="anonymous" />
+          <canvas id="overlay"></canvas>
           <div id="status" class="status">Nincs aktív kamera</div>
+        </div>
+        <div class="controls">
+          <button id="detectOnceButton" class="ghost">Front vizsgalat</button>
         </div>
         <div class="controls">
           <label for="deviceSelect">Válassz kamerát:</label>
